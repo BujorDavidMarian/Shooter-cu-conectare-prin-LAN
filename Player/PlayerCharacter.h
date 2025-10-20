@@ -32,6 +32,8 @@ protected:
 
 	virtual void UnPossessed() override;
 
+	virtual void Tick(float DeltaTime) override;
+
 	UFUNCTION(Client, Reliable)
 	void Client_AttachCameraToRagdoll();
 
@@ -46,8 +48,6 @@ private:
 	void Client_SaveCameraDefaults();
 
 public:	
-	// Called every frame
-	virtual void Tick(float DeltaTime) override;
 
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -73,6 +73,55 @@ protected:
 
 	void StopCrouch();
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
+	float WalkSpeed;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
+	float SprintSpeed;
+
+	UFUNCTION(Server, Reliable)
+	void Server_SetSprinting(bool bNewSprinting);
+
+	bool bIsSprinting = false;
+
+	void StartSprinting();
+
+	void StopSprinting();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sliding")
+	float MinSlideSpeed;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sliding")
+	float SlideFriction;
+
+	float DefaultBrakingDeceleration;
+
+	float DefaultGroundFriction;
+
+	virtual void Crouch(bool bClientSimulation = false) override;
+
+	virtual void UnCrouch(bool bClientSimulation = false) override;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_IsSliding, Category = "Sliding")
+	bool bIsSliding;
+
+	UFUNCTION()
+	void OnRep_IsSliding();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SetSliding(bool bNewSliding);
+
+	void StartSlide_Internal();
+	void StopSlide_Internal();
+
+	FTimerHandle SlideGraceTimerHandle;
+
+	bool bCanSlideAfterSprint;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sliding")
+	float SlideGraceTime;
+
+	void OnSlideGraceTimerEnd();
 
 	//HUD
 protected:

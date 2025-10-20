@@ -29,8 +29,7 @@ void ABaseWeapon::Fire(FVector CameraLocation, FRotator CameraRotation)
 {
     if (!HasAuthority() || CurrentAmmo <= 0)
     {
-           return;
-           GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::Yellow, TEXT("Dose not have authority"));
+        return;
     }
         
     CurrentAmmo--;
@@ -48,7 +47,6 @@ void ABaseWeapon::Fire(FVector CameraLocation, FRotator CameraRotation)
         AActor* HitActor = HitResult.GetActor();
         if (HitActor)
         {
-            GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, TEXT("HitSomething!"));
            if (APlayerCharacter* HitPlayer = Cast<APlayerCharacter>(HitActor))
            {
                GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, TEXT("HitPlayer"));

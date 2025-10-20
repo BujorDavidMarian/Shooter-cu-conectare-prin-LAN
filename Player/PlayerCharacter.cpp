@@ -120,6 +120,13 @@ void APlayerCharacter::BeginPlay()
 			}
 		}
 	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		DefaultGroundFriction = MoveComp->GroundFriction;
+
+		DefaultBrakingDeceleration = MoveComp->BrakingDecelerationWalking;
+	}
 }
 
 // Called every frame
@@ -129,6 +136,25 @@ void APlayerCharacter::Tick(float DeltaTime)
 	if (IsLocallyControlled())
 	{
 		Server_SetLookAtLocation(LookAtTargetSphere->GetComponentLocation());
+	}
+
+	if (HasAuthority() && bIsSliding)
+	{
+		UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+
+		if (MoveComp->Velocity.SizeSquared() < (MinSlideSpeed * MinSlideSpeed * 0.1f) || !MoveComp->IsMovingOnGround())
+		{
+			if (!bIsCrouched)
+			{
+				UnCrouch(false); 
+			}
+			else
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::Yellow, TEXT("Tick"));
+				bIsSliding = false; 
+				StopSlide_Internal(); 
+			}
+		}
 	}
 }
 
@@ -142,6 +168,9 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAction("Crouch", IE_Pressed, this, &APlayerCharacter::StartCrouch);
 	PlayerInputComponent->BindAction("Crouch", IE_Released, this, &APlayerCharacter::StopCrouch);
 
+	PlayerInputComponent->BindAction("Sprint", IE_Pressed, this, &APlayerCharacter::StartSprinting);
+	PlayerInputComponent->BindAction("Sprint", IE_Released, this, &APlayerCharacter::StopSprinting);
+
 	PlayerInputComponent->BindAxis("MoveForward", this, &APlayerCharacter::MoveForward);
 	PlayerInputComponent->BindAxis("MoveRight", this, &APlayerCharacter::MoveRight);
 
@@ -152,6 +181,59 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &APlayerCharacter::StartReload);
 }
 
+void APlayerCharacter::Server_SetSprinting_Implementation(bool bNewSprinting)
+{
+	bIsSprinting = bNewSprinting;
+	GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
+
+}
+
+void APlayerCharacter::StartSprinting()
+{
+	if (!bIsSprinting)
+	{
+		bIsSprinting = true;
+		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+
+		if (!HasAuthority())
+		{
+			Server_SetSprinting(true);
+		}
+	}
+
+	bCanSlideAfterSprint = false;
+	GetWorldTimerManager().ClearTimer(SlideGraceTimerHandle);
+}
+
+void APlayerCharacter::StopSprinting()
+{
+	if (bIsSprinting)
+	{
+		bIsSprinting = false;
+		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+
+		if (!HasAuthority())
+		{
+			Server_SetSprinting(false);
+		}
+	}
+
+	bCanSlideAfterSprint = true;
+
+	GetWorldTimerManager().SetTimer(
+		SlideGraceTimerHandle,        
+		this,                          
+		&APlayerCharacter::OnSlideGraceTimerEnd, 
+		SlideGraceTime,                
+		false                          
+	);
+}
+
+void APlayerCharacter::OnSlideGraceTimerEnd()
+{
+	bCanSlideAfterSprint = false;
+}
+
 void APlayerCharacter::StartCrouch()
 {
 	Crouch();
@@ -160,6 +242,104 @@ void APlayerCharacter::StartCrouch()
 void APlayerCharacter::StopCrouch()
 {
 	UnCrouch();
+}
+
+void APlayerCharacter::Crouch(bool bClientSimulation)
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp) return;
+
+	float CurrentSpeed = GetVelocity().Size2D();
+	bool bCanSlide = (bIsSprinting || bCanSlideAfterSprint) && MoveComp->IsMovingOnGround() && (CurrentSpeed >= MinSlideSpeed * 0.9f); 
+
+	if (bCanSlide)
+	{
+		bCanSlideAfterSprint = false;
+		GetWorldTimerManager().ClearTimer(SlideGraceTimerHandle);
+
+		bIsSliding = true;
+		StartSlide_Internal();
+
+		Server_SetSliding(true);
+	}
+
+	Super::Crouch(bClientSimulation);
+}
+
+void APlayerCharacter::UnCrouch(bool bClientSimulation)
+{
+	if (bIsSliding)
+	{
+		StopSlide_Internal();
+
+		Server_SetSliding(false);
+	}
+
+	Super::UnCrouch(bClientSimulation);
+}
+
+bool APlayerCharacter::Server_SetSliding_Validate(bool bNewSliding)
+{
+	return true;
+}
+
+void APlayerCharacter::Server_SetSliding_Implementation(bool bNewSliding)
+{
+
+	if (bNewSliding)
+	{
+		UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+		float CurrentSpeed = GetVelocity().Size2D();
+
+		if (CurrentSpeed >= (MinSlideSpeed * 0.9f) && MoveComp->IsMovingOnGround())
+		{
+			bIsSliding = true; 
+			StartSlide_Internal(); 
+		}
+	}
+	else
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::Yellow, TEXT("Server_SetSliding"));
+		bIsSliding = false; 
+		StopSlide_Internal(); 
+	}
+}
+
+void APlayerCharacter::StartSlide_Internal()
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (MoveComp)
+	{
+		MoveComp->GroundFriction = SlideFriction;
+
+		MoveComp->BrakingDecelerationWalking = 100.f;
+	}
+}
+
+void APlayerCharacter::StopSlide_Internal()
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (MoveComp)
+	{
+
+		MoveComp->GroundFriction = DefaultGroundFriction;
+
+		MoveComp->BrakingDecelerationWalking = DefaultBrakingDeceleration;
+	}
+}
+
+void APlayerCharacter::OnRep_IsSliding()
+{
+	if (bIsSliding)
+	{
+		StartSlide_Internal(); 
+		//porneste animatia de slide
+	}
+	else
+	{
+		StopSlide_Internal(); 
+		//porneste animatia de slide
+	}
 }
 
 void APlayerCharacter::MoveForward(float Input)
@@ -260,6 +440,7 @@ void APlayerCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	DOREPLIFETIME(APlayerCharacter, CurrentHealth);
 	DOREPLIFETIME(APlayerCharacter, LookAtLocation_Replicated);
 	DOREPLIFETIME(APlayerCharacter, CurrentWeapon);
+	DOREPLIFETIME(APlayerCharacter, bIsSliding);
 }
 
 void APlayerCharacter::OnRep_HealthChanged()
@@ -320,7 +501,7 @@ void APlayerCharacter::OnRep_CurrentWeapon()
 {
 	if (CurrentWeapon)
 	{
-		const FName SocketName = FName("ik_hand_gunPistol");
+		const FName SocketName = FName("HandGrip_R_Pistol");
 
 		if (IsLocallyControlled())
 		{
