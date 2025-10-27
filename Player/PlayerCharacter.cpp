@@ -63,6 +63,7 @@ void APlayerCharacter::PossessedBy(AController* NewController)
 		{
 			Pc->EnableInput(Pc);
 		}
+		bMenuOpen = false;
 
 	}
 }
@@ -120,6 +121,60 @@ void APlayerCharacter::BeginPlay()
 			}
 		}
 	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		DefaultGroundFriction = MoveComp->GroundFriction;
+
+		DefaultBrakingDeceleration = MoveComp->BrakingDecelerationWalking;
+	}
+
+	if (IsLocallyControlled() && AmmoWidgetClass)
+	{
+		APlayerController* PlayerController = GetController<APlayerController>();
+		if (PlayerController)
+		{
+			AmmoWidget = CreateWidget<UAmmoWidget>(PlayerController, AmmoWidgetClass);
+			if (AmmoWidget)
+			{
+				AmmoWidget->AddToViewport();
+				if (CurrentWeapon)
+				{
+
+					CurrentWeapon->OnAmmoChanged.AddDynamic(AmmoWidget, &UAmmoWidget::UpdateAmmoCount);
+
+					CurrentWeapon->BroadcastCurrentState();
+				}
+			}
+		}
+	}
+	else
+	{
+		if (IsLocallyControlled())
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::Red, TEXT("AmmoWidget nu e setat!"));
+		}
+	}
+
+	if (IsLocallyControlled() && CrossHairClass)
+	{
+		APlayerController* PlayerController = GetController<APlayerController>();
+		if (PlayerController)
+		{
+			CrossHairWidget = CreateWidget<UCrossHair>(PlayerController, CrossHairClass);
+			if (AmmoWidget)
+			{
+				CrossHairWidget->AddToViewport();
+			}
+		}
+	}
+	else
+	{
+		if (IsLocallyControlled())
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::Red, TEXT("CrossHairWidget nu e  setat!"));
+		}
+	}
 }
 
 // Called every frame
@@ -129,6 +184,24 @@ void APlayerCharacter::Tick(float DeltaTime)
 	if (IsLocallyControlled())
 	{
 		Server_SetLookAtLocation(LookAtTargetSphere->GetComponentLocation());
+	}
+
+	if (HasAuthority() && bIsSliding)
+	{
+		UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+
+		if (MoveComp->Velocity.SizeSquared() < (MinSlideSpeed * MinSlideSpeed * 0.1f) || !MoveComp->IsMovingOnGround())
+		{
+			if (!bIsCrouched)
+			{
+				UnCrouch(false); 
+			}
+			else
+			{
+				bIsSliding = false; 
+				StopSlide_Internal(); 
+			}
+		}
 	}
 }
 
@@ -142,6 +215,9 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAction("Crouch", IE_Pressed, this, &APlayerCharacter::StartCrouch);
 	PlayerInputComponent->BindAction("Crouch", IE_Released, this, &APlayerCharacter::StopCrouch);
 
+	PlayerInputComponent->BindAction("Sprint", IE_Pressed, this, &APlayerCharacter::StartSprinting);
+	PlayerInputComponent->BindAction("Sprint", IE_Released, this, &APlayerCharacter::StopSprinting);
+
 	PlayerInputComponent->BindAxis("MoveForward", this, &APlayerCharacter::MoveForward);
 	PlayerInputComponent->BindAxis("MoveRight", this, &APlayerCharacter::MoveRight);
 
@@ -150,6 +226,63 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &APlayerCharacter::StartFire);
 	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &APlayerCharacter::StartReload);
+
+	FInputActionBinding& MenuBinding = PlayerInputComponent->BindAction("OpenMenu", IE_Pressed, this, &APlayerCharacter::Open_Close_Menu);
+
+	MenuBinding.bExecuteWhenPaused = true;
+}
+
+void APlayerCharacter::Server_SetSprinting_Implementation(bool bNewSprinting)
+{
+	bIsSprinting = bNewSprinting;
+	GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
+
+}
+
+void APlayerCharacter::StartSprinting()
+{
+	if (!bIsSprinting)
+	{
+		bIsSprinting = true;
+		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+
+		if (!HasAuthority())
+		{
+			Server_SetSprinting(true);
+		}
+	}
+
+	bCanSlideAfterSprint = false;
+	GetWorldTimerManager().ClearTimer(SlideGraceTimerHandle);
+}
+
+void APlayerCharacter::StopSprinting()
+{
+	if (bIsSprinting)
+	{
+		bIsSprinting = false;
+		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+
+		if (!HasAuthority())
+		{
+			Server_SetSprinting(false);
+		}
+	}
+
+	bCanSlideAfterSprint = true;
+
+	GetWorldTimerManager().SetTimer(
+		SlideGraceTimerHandle,        
+		this,                          
+		&APlayerCharacter::OnSlideGraceTimerEnd, 
+		SlideGraceTime,                
+		false                          
+	);
+}
+
+void APlayerCharacter::OnSlideGraceTimerEnd()
+{
+	bCanSlideAfterSprint = false;
 }
 
 void APlayerCharacter::StartCrouch()
@@ -160,6 +293,121 @@ void APlayerCharacter::StartCrouch()
 void APlayerCharacter::StopCrouch()
 {
 	UnCrouch();
+}
+
+void APlayerCharacter::Crouch(bool bClientSimulation)
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp) return;
+
+	float CurrentSpeed = GetVelocity().Size2D();
+	bool bCanSlide = (MoveComp->IsMovingOnGround() && bCanSlideAfterSprint) || (bIsSprinting && MoveComp->IsMovingOnGround() && (CurrentSpeed >= MinSlideSpeed * 0.9f)); 
+
+	if (bCanSlide)
+	{
+		bCanSlideAfterSprint = false;
+		GetWorldTimerManager().ClearTimer(SlideGraceTimerHandle);
+
+		bIsSliding = true;
+		StartSlide_Internal();
+
+		Server_SetSliding(true);
+	}
+
+	Super::Crouch(bClientSimulation);
+}
+
+void APlayerCharacter::UnCrouch(bool bClientSimulation)
+{
+	if (bIsSliding)
+	{
+		StopSlide_Internal();
+
+		Server_SetSliding(false);
+	}
+
+	Super::UnCrouch(bClientSimulation);
+}
+
+bool APlayerCharacter::Server_SetSliding_Validate(bool bNewSliding)
+{
+	return true;
+}
+
+void APlayerCharacter::Server_SetSliding_Implementation(bool bNewSliding)
+{
+
+	if (bNewSliding)
+	{
+		UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+		float CurrentSpeed = GetVelocity().Size2D();
+
+		if (CurrentSpeed >= (MinSlideSpeed * 0.9f) && MoveComp->IsMovingOnGround())
+		{
+			bIsSliding = true; 
+			StartSlide_Internal(); 
+		}
+	}
+	else
+	{
+		bIsSliding = false; 
+		StopSlide_Internal(); 
+	}
+}
+
+void APlayerCharacter::StartSlide_Internal()
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (MoveComp)
+	{
+		MoveComp->GroundFriction = SlideFriction;
+
+		MoveComp->BrakingDecelerationWalking = 0.0f;
+	}
+	
+	if (Camera)
+	{
+		FRotator CamRot = Camera->GetRelativeRotation();
+
+		CamRot.Roll = 90.0f;
+
+		Camera->SetRelativeRotation(CamRot);
+	}
+}
+
+void APlayerCharacter::StopSlide_Internal()
+{
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (MoveComp)
+	{
+
+		MoveComp->GroundFriction = DefaultGroundFriction;
+
+		MoveComp->BrakingDecelerationWalking = DefaultBrakingDeceleration;
+	}
+
+	if (Camera)
+	{
+		FRotator CamRot = Camera->GetRelativeRotation();
+
+		CamRot.Roll = 0.0f;
+
+		Camera->SetRelativeRotation(CamRot);
+	}
+}
+
+void APlayerCharacter::OnRep_IsSliding()
+{
+	if (bIsSliding)
+	{
+		StartSlide_Internal(); 
+		//porneste animatia de slide
+	}
+	else
+	{
+		StopSlide_Internal(); 
+		//porneste animatia de slide
+	}
 }
 
 void APlayerCharacter::MoveForward(float Input)
@@ -232,7 +480,6 @@ void APlayerCharacter::Multicast_OnDeath_Implementation()
 
 	GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_None);
-	//GetCharacterMovement()->DisableMovement();
 
 	GetCapsuleComponent()->SetCollisionProfileName(FName("NoCollision"));
 
@@ -260,6 +507,54 @@ void APlayerCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	DOREPLIFETIME(APlayerCharacter, CurrentHealth);
 	DOREPLIFETIME(APlayerCharacter, LookAtLocation_Replicated);
 	DOREPLIFETIME(APlayerCharacter, CurrentWeapon);
+	DOREPLIFETIME(APlayerCharacter, bIsSliding);
+}
+
+void APlayerCharacter::Open_Close_Menu()
+{
+	APlayerController* PlayerController = GetController<APlayerController>();
+
+	if (!PlayerController || !EscMenuClass)
+	{
+		return;
+	}
+
+	if (!bMenuOpen)
+	{
+		if (IsLocallyControlled())
+		{
+			PlayerController->bShowMouseCursor = true;
+
+			FInputModeGameAndUI InputModeData;
+
+			PlayerController->SetInputMode(InputModeData);
+
+			EscMenuWidget = CreateWidget<UUserWidget>(PlayerController, EscMenuClass);
+			if (EscMenuWidget)
+			{
+				EscMenuWidget->AddToViewport();
+				bMenuOpen = true; 
+			}
+		}
+	}
+	else 
+	{
+		if (IsLocallyControlled())
+		{
+			PlayerController->bShowMouseCursor = false;
+
+			FInputModeGameOnly InputModeData;
+
+			PlayerController->SetInputMode(InputModeData);
+
+			if (EscMenuWidget != nullptr)
+			{
+				EscMenuWidget->RemoveFromParent();
+				EscMenuWidget = nullptr;
+				bMenuOpen = false; 
+			}
+		}
+	}
 }
 
 void APlayerCharacter::OnRep_HealthChanged()
@@ -309,9 +604,14 @@ void APlayerCharacter::EquipWeapon(ABaseWeapon* WeaponToEquip)
 	{
 		if (WeaponToEquip)
 		{
+			CurrentWeaponType = WeaponToEquip->GetWeaponType();
 			CurrentWeapon = WeaponToEquip;
 			CurrentWeapon->SetOwner(this);
 			OnRep_CurrentWeapon();
+		}
+		else
+		{
+			CurrentWeaponType = EWeaponType::EWT_Knife;
 		}
 	}
 }
@@ -320,11 +620,19 @@ void APlayerCharacter::OnRep_CurrentWeapon()
 {
 	if (CurrentWeapon)
 	{
-		const FName SocketName = FName("ik_hand_gunPistol");
+		const FName SocketName = FName("HandGrip_R_Pistol");
 
 		if (IsLocallyControlled())
 		{
 			CurrentWeapon->AttachToComponent(FpArms, FAttachmentTransformRules::SnapToTargetNotIncludingScale, SocketName);
+
+			if (AmmoWidget)
+			{
+
+				CurrentWeapon->OnAmmoChanged.AddDynamic(AmmoWidget, &UAmmoWidget::UpdateAmmoCount);
+
+				CurrentWeapon->BroadcastCurrentState();
+			}
 		}
 		else
 		{
@@ -335,7 +643,7 @@ void APlayerCharacter::OnRep_CurrentWeapon()
 
 void APlayerCharacter::StartFire()
 {
-	if (CurrentWeapon)
+	if (IsValid(CurrentWeapon))
 	{
 		Server_StartFire();
 	}
@@ -343,17 +651,22 @@ void APlayerCharacter::StartFire()
 
 void APlayerCharacter::Server_StartFire_Implementation()
 {
-	if (CurrentWeapon)
+	if (IsValid(CurrentWeapon))
 	{
-		FVector Loc; FRotator Rot;
-		GetActorEyesViewPoint(Loc, Rot);
-		CurrentWeapon->Fire(Loc, Rot);
+		FVector CameraLocation;
+		FRotator CameraRotation;
+		GetController()->GetPlayerViewPoint(CameraLocation, CameraRotation);
+
+		if (IsValid(CurrentWeapon))
+		{
+			CurrentWeapon->Fire(CameraLocation, CameraRotation);
+		}
 	}
 }
 
 void APlayerCharacter::StartReload()
 {
-	if (CurrentWeapon)
+	if (IsValid(CurrentWeapon))
 	{
 		CurrentWeapon->Reload();
 	}
@@ -460,4 +773,10 @@ void APlayerCharacter::Client_AttachCameraToRagdoll_Implementation()
 			Pc->DisableInput(Pc);
 		}
 	}
+}
+
+
+void APlayerCharacter::SetIsReloading_Anim(bool bNewReloadingState)
+{
+	bIsReloading_Anim = bNewReloadingState;
 }

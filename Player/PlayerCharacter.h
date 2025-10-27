@@ -4,9 +4,14 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InvatareCPP/HealthWidget/HealthWidget.h"
+#include "invatareCPP/AmmoWidget/AmmoWidget.h"
+#include "InvatareCPP/CrossHair/CrossHair.h"
 #include "Components/SphereComponent.h"
 #include "InvatareCPP/Weapons/BaseWeapon.h"
 #include "PlayerCharacter.generated.h"
+
+class UAnimMontage; 
+class ABaseWeapon;
 
 UCLASS()
 class INVATARECPP_API APlayerCharacter : public ACharacter
@@ -32,6 +37,8 @@ protected:
 
 	virtual void UnPossessed() override;
 
+	virtual void Tick(float DeltaTime) override;
+
 	UFUNCTION(Client, Reliable)
 	void Client_AttachCameraToRagdoll();
 
@@ -46,8 +53,6 @@ private:
 	void Client_SaveCameraDefaults();
 
 public:	
-	// Called every frame
-	virtual void Tick(float DeltaTime) override;
 
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -73,6 +78,56 @@ protected:
 
 	void StopCrouch();
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
+	float WalkSpeed;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Movement")
+	float SprintSpeed;
+
+	UFUNCTION(Server, Reliable)
+	void Server_SetSprinting(bool bNewSprinting);
+
+	bool bIsSprinting = false;
+
+	void StartSprinting();
+
+	void StopSprinting();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sliding")
+	float MinSlideSpeed;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sliding")
+	float SlideFriction;
+
+	float DefaultBrakingDeceleration;
+
+	float DefaultGroundFriction;
+
+	virtual void Crouch(bool bClientSimulation = false) override;
+
+	virtual void UnCrouch(bool bClientSimulation = false) override;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_IsSliding, Category = "Sliding")
+	bool bIsSliding;
+
+	UFUNCTION()
+	void OnRep_IsSliding();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SetSliding(bool bNewSliding);
+
+	void StartSlide_Internal();
+
+	void StopSlide_Internal();
+
+	FTimerHandle SlideGraceTimerHandle;
+
+	bool bCanSlideAfterSprint;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sliding")
+	float SlideGraceTime;
+
+	void OnSlideGraceTimerEnd();
 
 	//HUD
 protected:
@@ -88,6 +143,30 @@ protected:
 
 	UPROPERTY()
 	UUserWidget* DamageEffectWidget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	TSubclassOf<UAmmoWidget> AmmoWidgetClass;
+
+	UPROPERTY()
+	UAmmoWidget* AmmoWidget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	TSubclassOf<UCrossHair> CrossHairClass;
+
+	UPROPERTY()
+	UCrossHair* CrossHairWidget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	TSubclassOf<UUserWidget> EscMenuClass;
+
+	UPROPERTY()
+	UUserWidget* EscMenuWidget;
+
+	UFUNCTION()
+	void Open_Close_Menu();
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly)
+	bool bMenuOpen;
 
 	//Viata
 protected:
@@ -164,16 +243,28 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	TSubclassOf<ABaseWeapon> DefaultWeaponClass;
 
-	UPROPERTY(ReplicatedUsing = OnRep_CurrentWeapon)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	EWeaponType CurrentWeaponType;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentWeapon)
 	ABaseWeapon* CurrentWeapon;
 
 	UFUNCTION()
 	void OnRep_CurrentWeapon();
 
 	void StartFire();
+
 	void StartReload();
 
 	UFUNCTION(Server, Reliable)
 	void Server_StartFire();
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Animation")
+	bool bIsReloading_Anim;
+
+
+public: 
+
+	void SetIsReloading_Anim(bool bNewReloadingState);
 
 };
