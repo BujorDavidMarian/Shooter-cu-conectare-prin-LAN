@@ -83,6 +83,8 @@ void APlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	UpdateNameplateWidget();
+
 	CurrentHealth = MaxHealth;
 	LastHealth = CurrentHealth;
 
@@ -203,6 +205,13 @@ void APlayerCharacter::Tick(float DeltaTime)
 			}
 		}
 	}
+}
+
+void APlayerCharacter::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+
+	UpdateNameplateWidget();
 }
 
 
@@ -434,7 +443,7 @@ void APlayerCharacter::LookUp(float Input)
 	AddControllerPitchInput(-Input);
 }
 
-void APlayerCharacter::Server_TakeDamage_Implementation(float Damage)
+void APlayerCharacter::Server_TakeDamage_Implementation(float Damage , AController* InstigatorController)
 {
 	UE_LOG(LogTemp, Warning, TEXT("Server_TakeDamage: Am fost lovit! Damage: %f. CurrentHealth: %f. IsDead() este: %s"),
 		Damage,
@@ -449,9 +458,11 @@ void APlayerCharacter::Server_TakeDamage_Implementation(float Damage)
 	TakeDamage(Damage);
 	if (IsDead())
 	{
+
 		AMyGameModeBase* GameMode = GetWorld()->GetAuthGameMode<AMyGameModeBase>();
 		if (GameMode)
 		{
+			GameMode->PlayerWasKilled(GetController(), InstigatorController);
 			GameMode->PlayerDied(GetController(), this);
 			if (Controller)
 			{
@@ -459,10 +470,6 @@ void APlayerCharacter::Server_TakeDamage_Implementation(float Damage)
 			}
 		}
 		Multicast_OnDeath();
-
-		//respawn
-		//death animation
-		//etc
 	}
 }
 
@@ -493,8 +500,20 @@ void APlayerCharacter::Multicast_OnDeath_Implementation()
 
 void APlayerCharacter::Heal(float Amount)
 {
+
+	UE_LOG(LogTemp, Warning, TEXT("Heal chemat cu Amount: %f"), Amount);
+
+	if (Amount <= 0.f)
+	{
+		UE_LOG(LogTemp, Error, TEXT("EROARE: Heal Amount este 0 sau negativ!"));
+	}
+	if (IsDead())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("INFO: Jucatorul este mort (IsDead() == true)"));
+	}
+
 	if (Amount <= 0.f || IsDead())return;
-	CurrentHealth = FMath::Clamp(CurrentHealth + Amount, 0.f, MaxHealth);
+
 	if (HasAuthority())
 	{
 		OnRep_HealthChanged();
@@ -678,30 +697,33 @@ void APlayerCharacter::Multicast_HandleRespawn_Implementation()
 	if (MyMesh)
 	{
 		MyMesh->SetSimulatePhysics(false);
-		MyMesh->SetCollisionProfileName(TEXT("CharacterMesh")); 
+		MyMesh->SetCollisionProfileName(TEXT("CharacterMesh"));
 		MyMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 
 		MyMesh->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 		MyMesh->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -90.f), FRotator(0.f, -90.f, 0.f));
-		 
+
 		MyMesh->SetOwnerNoSee(true);
 	}
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-
 	GetCapsuleComponent()->SetCollisionResponseToAllChannels(ECR_Block);
-
 	GetCapsuleComponent()->SetCollisionProfileName(FName("PlayerCharacter"));
-
 	GetCharacterMovement()->Activate();
-
 	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Walking);
 
 	if (FpArms)
 	{
-		FpArms->SetVisibility(true); 
+		FpArms->SetVisibility(true);
 	}
 
 	ResetHealth();
+
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Ignore);
+
+	if (MyMesh)
+	{
+		MyMesh->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);
+	}
 }
 
 void APlayerCharacter::Client_SaveCameraDefaults()

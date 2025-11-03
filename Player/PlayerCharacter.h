@@ -39,6 +39,11 @@ protected:
 
 	virtual void Tick(float DeltaTime) override;
 
+	virtual void OnRep_PlayerState() override;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
+	void UpdateNameplateWidget(); 
+
 	UFUNCTION(Client, Reliable)
 	void Client_AttachCameraToRagdoll();
 
@@ -197,12 +202,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Health")
 	bool IsDead() const;
 
-
-	//Take damage on server
 	UFUNCTION(Server, Reliable)
-	void Server_TakeDamage(float DamageAmount);
+	void Server_TakeDamage(float DamageAmount, AController* InstigatorController);
 
-	// Helper pentru a accesa viata actuala
 	UFUNCTION(BlueprintPure, Category = "Health")
 	float GetHealthPercent() const;
 
@@ -210,7 +212,6 @@ public:
 
 protected:
 
-	//Move head and spine with camera
 
 	UPROPERTY(ReplicatedUsing = OnRep_AimRotation)
 	FRotator AimRotation_Replicated;

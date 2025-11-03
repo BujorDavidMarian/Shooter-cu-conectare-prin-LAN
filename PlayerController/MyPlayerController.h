@@ -21,5 +21,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Network")
 	void JoinGame(const FString& IpAddress);
+
+	UFUNCTION(BlueprintCallable, Server, Reliable, WithValidation)
+	void Server_SetPlayerName(const FString& NewName);
 	
 };

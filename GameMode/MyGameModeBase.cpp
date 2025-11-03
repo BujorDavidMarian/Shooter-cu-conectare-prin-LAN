@@ -3,8 +3,10 @@
 
 #include "InvatareCPP/GameMode/MyGameModeBase.h"
 #include "MyGameModeBase.h"
+#include "InvatareCPP/GameState/MyGameState.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerStart.h"
+#include "GameFramework/PlayerState.h"
 #include "InvatareCPP/Player/PlayerCharacter.h"
 
 AMyGameModeBase::AMyGameModeBase()
@@ -79,4 +81,43 @@ void AMyGameModeBase::PlayerDied(AController* PlayerController, APawn* DeadPawn)
 	RespawnDelegate.BindUObject(this, &AMyGameModeBase::RespawnPlayer, PlayerController);
 
 	GetWorldTimerManager().SetTimer(RespawnTimerHandle, RespawnDelegate, RespawnDelay, false);
+}
+
+void AMyGameModeBase::PlayerWasKilled(AController* VictimController, AController* InstigatorController)
+{
+	APlayerState* VictimPS = (VictimController != nullptr) ? VictimController->PlayerState : nullptr;
+	APlayerState* KillerPS = (InstigatorController != nullptr) ? InstigatorController->PlayerState : nullptr;
+
+	FString VictimName = "Jucator";
+	if (VictimPS != nullptr)
+	{
+		VictimName = VictimPS->GetPlayerName();
+	}
+
+	FString KillerName = "Mediul"; 
+	if (KillerPS != nullptr)
+	{
+		if (KillerPS == VictimPS)
+		{
+			KillerName = ""; 
+		}
+		else
+		{
+			KillerName = KillerPS->GetPlayerName();
+		}
+	}
+
+
+	AMyGameState* MyGS = GetGameState<AMyGameState>();
+	if (MyGS != nullptr)
+	{
+		if (KillerName.IsEmpty())
+		{
+			MyGS->Multicast_BroadcastKill(TEXT(""), VictimName); 
+		}
+		else
+		{
+			MyGS->Multicast_BroadcastKill(KillerName, VictimName);
+		}
+	}
 }

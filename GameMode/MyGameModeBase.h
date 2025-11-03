@@ -24,6 +24,8 @@ public:
 	void RespawnPlayer(AController* PlayerToRespawn);
 	void PlayerDied(AController* PlayerController, APawn* DeadPawn);
 
+	void PlayerWasKilled(AController* VictimController, AController* InstigatorController);
+
 protected:
 
 	virtual AActor* FindPlayerStart_Implementation(AController* Player, const FString& IncomingName = TEXT("")) override;

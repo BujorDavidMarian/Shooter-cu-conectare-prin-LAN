@@ -7,6 +7,7 @@
 #include "Engine/TimerHandle.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
 #include "BaseWeapon.generated.h"
 
 UENUM(BlueprintType)
@@ -39,6 +40,9 @@ public:
 
 
 protected:
+
+    virtual void BeginPlay() override;
+
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon Properties")
@@ -84,6 +88,12 @@ protected:
     UFUNCTION(NetMulticast, Unreliable)
     void Multicast_PlayFireEffects();
 
+    UFUNCTION(NetMulticast, Unreliable)
+    void Multicast_PlayDryFireEffects();
+
+    UFUNCTION(NetMulticast, Unreliable)
+    void Multicast_PlayRealoadEffects();
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon Mesh")
     USkeletalMeshComponent* WeaponMesh;
 
@@ -110,6 +120,12 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Effects")
     USoundBase* FireSound;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Effects")
+    USoundBase* DryFireSound;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Effects")
+    USoundBase* RealoadSound;
 
     UFUNCTION(NetMulticast, Reliable)
     void Multicast_PlayHitSound();
