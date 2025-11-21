@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/ProgressBar.h"
+#include "Components/TextBlock.h"
 #include "HealthWidget.generated.h"
 
 /**
@@ -19,6 +20,9 @@ protected:
 
     UPROPERTY(meta = (BindWidget))
     UProgressBar* HealthBar;
+
+    UPROPERTY(meta = (BindWidget))
+    UTextBlock* HealthText;
 
 public:
 

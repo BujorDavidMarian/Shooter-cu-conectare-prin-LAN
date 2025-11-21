@@ -5,9 +5,10 @@
 
 void UHealthWidget::UpdateHealth(float Percent)
 {
-    if (HealthBar)
+    if (HealthBar && HealthText)
     {
         HealthBar->SetPercent(Percent);
+        HealthText->SetText(FText::FromString(FString::Printf(TEXT("%d"), (int32)(Percent * 100.0f))));
     }
     else
     {

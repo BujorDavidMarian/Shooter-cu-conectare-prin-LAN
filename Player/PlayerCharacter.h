@@ -4,9 +4,14 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InvatareCPP/HealthWidget/HealthWidget.h"
+#include "invatareCPP/AmmoWidget/AmmoWidget.h"
+#include "InvatareCPP/CrossHair/CrossHair.h"
 #include "Components/SphereComponent.h"
 #include "InvatareCPP/Weapons/BaseWeapon.h"
 #include "PlayerCharacter.generated.h"
+
+class UAnimMontage; 
+class ABaseWeapon;
 
 UCLASS()
 class INVATARECPP_API APlayerCharacter : public ACharacter
@@ -112,6 +117,7 @@ protected:
 	void Server_SetSliding(bool bNewSliding);
 
 	void StartSlide_Internal();
+
 	void StopSlide_Internal();
 
 	FTimerHandle SlideGraceTimerHandle;
@@ -137,6 +143,30 @@ protected:
 
 	UPROPERTY()
 	UUserWidget* DamageEffectWidget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	TSubclassOf<UAmmoWidget> AmmoWidgetClass;
+
+	UPROPERTY()
+	UAmmoWidget* AmmoWidget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	TSubclassOf<UCrossHair> CrossHairClass;
+
+	UPROPERTY()
+	UCrossHair* CrossHairWidget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	TSubclassOf<UUserWidget> EscMenuClass;
+
+	UPROPERTY()
+	UUserWidget* EscMenuWidget;
+
+	UFUNCTION()
+	void Open_Close_Menu();
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly)
+	bool bMenuOpen;
 
 	//Viata
 protected:
@@ -213,16 +243,28 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	TSubclassOf<ABaseWeapon> DefaultWeaponClass;
 
-	UPROPERTY(ReplicatedUsing = OnRep_CurrentWeapon)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	EWeaponType CurrentWeaponType;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentWeapon)
 	ABaseWeapon* CurrentWeapon;
 
 	UFUNCTION()
 	void OnRep_CurrentWeapon();
 
 	void StartFire();
+
 	void StartReload();
 
 	UFUNCTION(Server, Reliable)
 	void Server_StartFire();
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Animation")
+	bool bIsReloading_Anim;
+
+
+public: 
+
+	void SetIsReloading_Anim(bool bNewReloadingState);
 
 };

@@ -16,7 +16,13 @@ ABaseWeapon::ABaseWeapon()
 
     Damage = 20.0f;
     MaxAmmo = 30;
+    WeaponRange = 10000.0f;
     CurrentAmmo = MaxAmmo;
+
+    FireRate = 0.2f;
+    ReloadTime = 1.5f;
+    bCanFire = true;
+    bIsReloading = false;
 }
 
 void ABaseWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -25,18 +31,39 @@ void ABaseWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifet
     DOREPLIFETIME(ABaseWeapon, CurrentAmmo);
 }
 
+void ABaseWeapon::OnRep_CurrentAmmo()
+{
+    OnAmmoChanged.Broadcast(CurrentAmmo, MaxAmmo);
+}
+
+void ABaseWeapon::Multicast_PlayHitSound_Implementation()
+{
+    if (HitSound)
+    {
+        UGameplayStatics::PlaySoundAtLocation(
+            GetWorld(),			
+            HitSound,			
+            GetActorLocation()	
+        );
+    }
+}
+
 void ABaseWeapon::Fire(FVector CameraLocation, FRotator CameraRotation)
 {
-    if (!HasAuthority() || CurrentAmmo <= 0)
+    if (!HasAuthority() || CurrentAmmo <= 0 || !bCanFire || bIsReloading)
     {
         return;
     }
         
     CurrentAmmo--;
 
+    OnAmmoChanged.Broadcast(CurrentAmmo, MaxAmmo);
+
+    bCanFire = false;
+
     FHitResult HitResult;
 
-    FVector End = CameraLocation + CameraRotation.Vector() * 10000.0f;
+    FVector End = CameraLocation + CameraRotation.Vector() * WeaponRange;
 
     FCollisionQueryParams Params;
     Params.AddIgnoredActor(this);
@@ -49,7 +76,7 @@ void ABaseWeapon::Fire(FVector CameraLocation, FRotator CameraRotation)
         {
            if (APlayerCharacter* HitPlayer = Cast<APlayerCharacter>(HitActor))
            {
-               GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, TEXT("HitPlayer"));
+               Multicast_PlayHitSound();
                HitPlayer->Server_TakeDamage(Damage);
            }
             // Daca ai lovit altceva 
@@ -57,6 +84,14 @@ void ABaseWeapon::Fire(FVector CameraLocation, FRotator CameraRotation)
     }
 
     Multicast_PlayFireEffects();
+
+    GetWorld()->GetTimerManager().SetTimer(
+        FireRateTimerHandle, 
+        this,                   
+        &ABaseWeapon::ResetFire,
+        FireRate,       
+        false                   
+    );
 }
 
 void ABaseWeapon::Reload()
@@ -66,13 +101,79 @@ void ABaseWeapon::Reload()
 
 void ABaseWeapon::Server_Reload_Implementation()
 {
-    if (CurrentAmmo < MaxAmmo)
+    if (bIsReloading || CurrentAmmo < MaxAmmo)
     {
         CurrentAmmo = MaxAmmo;
     }
+    OnAmmoChanged.Broadcast(CurrentAmmo, MaxAmmo);
+
+    bIsReloading = true;
+
+    if (APlayerCharacter* OwningCharacter = Cast<APlayerCharacter>(GetOwner()))
+    {
+        OwningCharacter->SetIsReloading_Anim(true);
+    }
+
+    GetWorld()->GetTimerManager().SetTimer(
+        TimerHandle_FinishReload,
+        this,
+        &ABaseWeapon::FinishReload, 
+        ReloadTime,
+        false
+    );
 }
 
 void ABaseWeapon::Multicast_PlayFireEffects_Implementation()
 {
     //efecte de particule, sunete, etc.
+    if (UAnimInstance* AnimInstance = WeaponMesh->GetAnimInstance())
+    {
+        AnimInstance->Montage_Play(FireAnimMontage_FP);
+        
+    }
+
+    if (MuzzleFlashEffect)
+    {
+        UNiagaraFunctionLibrary::SpawnSystemAttached(
+            MuzzleFlashEffect,      
+            WeaponMesh,             
+            MuzzleSocketName,       
+            FVector::ZeroVector,   
+            FRotator::ZeroRotator,  
+            EAttachLocation::SnapToTargetIncludingScale, 
+            true                    
+        );
+    }
+
+    if (FireSound)
+    {
+        UGameplayStatics::SpawnSoundAttached(
+            FireSound,             
+            WeaponMesh,            
+            MuzzleSocketName,
+            FVector::ZeroVector,   
+            FRotator::ZeroRotator, 
+            EAttachLocation::SnapToTarget, 
+            true                 
+        );
+    }
+}
+
+void ABaseWeapon::BroadcastCurrentState_Implementation()
+{
+    OnAmmoChanged.Broadcast(CurrentAmmo, MaxAmmo);
+}
+
+void ABaseWeapon::ResetFire()
+{
+    bCanFire = true;
+}
+
+void ABaseWeapon::FinishReload()
+{
+    bIsReloading = false;
+    if (APlayerCharacter* OwningCharacter = Cast<APlayerCharacter>(GetOwner()))
+    {
+        OwningCharacter->SetIsReloading_Anim(false); 
+    }
 }
