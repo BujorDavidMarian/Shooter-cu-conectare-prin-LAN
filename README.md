@@ -4,7 +4,7 @@
 ![Genre](https://img.shields.io/badge/Genre-Multiplayer%20FPS-red)
 
 ## 📜 About the Project
-This is a fast-paced **First-Person Shooter** designed for local network play. The project focuses on responsive combat mechanics, smooth movement implementation, and a robust networking architecture that allows players to host and join matches seamlessly.
+This is a fast-paced **First-Person Shooter** designed for local network play. The project focuses on responsive combat mechanics, smooth movement implementation, and a robust networking architecture that allows players to host and join matches.
 
 ---
 
